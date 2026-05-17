@@ -5,10 +5,10 @@ const ctrl = require('./controller');
 
 // Employee routes
 router.get('/my', auth, role('employee'), ctrl.getMyGoals);
+router.post('/submit', auth, role('employee'), ctrl.submitGoals);
 router.post('/', auth, role('employee'), ctrl.createGoal);
 router.put('/:id', auth, role('employee'), ctrl.updateGoal);
 router.delete('/:id', auth, role('employee'), ctrl.deleteGoal);
-router.post('/submit', auth, role('employee'), ctrl.submitGoals);
 
 // Manager routes
 router.get('/team', auth, role('manager'), ctrl.getTeamGoals);

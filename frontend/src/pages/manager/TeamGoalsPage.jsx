@@ -2,148 +2,107 @@ import { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { CheckCircle, RotateCcw, ChevronDown, ChevronUp, Users } from 'lucide-react';
 
+const statusBadge = { draft: 'badge-draft', submitted: 'badge-submitted', approved: 'badge-approved', locked: 'badge-locked', returned: 'badge-returned' };
+
 export default function TeamGoalsPage() {
-  const [goals, setGoals] = useState([]);
+  const [goals, setGoals]       = useState([]);
   const [comments, setComments] = useState({});
   const [messages, setMessages] = useState({});
   const [expanded, setExpanded] = useState({});
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]   = useState(false);
 
   useEffect(() => { fetchGoals(); }, []);
-
-  const fetchGoals = async () => {
-    try { setGoals(await api.get('/goals/team')); }
-    catch (e) { console.error(e); }
-  };
+  const fetchGoals = () => api.get('/goals/team').then(setGoals).catch(console.error);
+  const toggle = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }));
 
   const doAction = async (id, type) => {
     setLoading(true);
     setMessages(m => ({ ...m, [id]: '' }));
     try {
       await api.put(`/goals/${id}/${type}`, { comment: comments[id] || '' });
-      setMessages(m => ({ ...m, [id]: type === 'approve' ? '✅ Approved & Locked' : '↩️ Returned for rework' }));
+      setMessages(m => ({ ...m, [id]: type === 'approve' ? 'approved' : 'returned' }));
       fetchGoals();
-    } catch (e) {
-      setMessages(m => ({ ...m, [id]: e.error || 'Action failed' }));
-    } finally { setLoading(false); }
+    } catch (e) { setMessages(m => ({ ...m, [id]: e.error || 'Failed' })); }
+    finally { setLoading(false); }
   };
 
-  const toggle = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }));
-
-  // Group by employee
   const grouped = goals.reduce((acc, g) => {
-    const key = g.employee_name;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(g);
-    return acc;
+    if (!acc[g.employee_name]) acc[g.employee_name] = [];
+    acc[g.employee_name].push(g); return acc;
   }, {});
 
-  const statusStyle = {
-    draft: 'bg-gray-100 text-gray-600',
-    submitted: 'bg-blue-100 text-blue-700',
-    approved: 'bg-green-100 text-green-700',
-    locked: 'bg-teal-100 text-teal-700',
-    returned: 'bg-orange-100 text-orange-700',
-  };
+  if (Object.keys(grouped).length === 0) return (
+    <div>
+      <div className="page-hdr"><h1 className="page-title">Team Goals</h1></div>
+      <div className="card-p empty-state"><Users size={40} style={{ opacity: 0.2 }} /><p className="font-medium text-ink-muted">No team goals found.</p></div>
+    </div>
+  );
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-900 mb-1">Team Goals</h1>
-      <p className="text-sm text-gray-500 mb-6">Review and approve your team's submitted goal sheets.</p>
-
-      {Object.keys(grouped).length === 0 && (
-        <div className="text-center py-16 text-gray-400">
-          <Users size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No team goals found.</p>
+      <div className="page-hdr">
+        <div>
+          <h1 className="page-title">Team Goals</h1>
+          <p className="page-sub">Review and approve your team's submitted goal sheets.</p>
         </div>
-      )}
-
+      </div>
       {Object.entries(grouped).map(([empName, empGoals]) => {
-        const totalWeight = empGoals.reduce((s, g) => s + parseFloat(g.weightage || 0), 0);
-        const allSubmitted = empGoals.every(g => ['submitted','locked','approved'].includes(g.status));
+        const totalW = empGoals.reduce((s, g) => s + parseFloat(g.weightage || 0), 0);
+        const hasPending = empGoals.some(g => g.status === 'submitted');
         return (
-          <div key={empName} className="mb-6">
-            <div className="flex items-center justify-between mb-3">
+          <div key={empName} className="mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
-                <p className="font-semibold text-gray-800">{empName}</p>
-                <p className="text-xs text-gray-400">{empGoals.length} goals · Total weight: {totalWeight}%</p>
+                <p className="font-semibold text-ink">{empName}</p>
+                <p className="text-xs text-ink-faint">{empGoals.length} goals · Total weight: {totalW}%</p>
               </div>
-              {allSubmitted && (
-                <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full font-medium">Ready for review</span>
-              )}
+              {hasPending && <span className="badge badge-submitted">Awaiting Review</span>}
             </div>
-
-            <div className="space-y-3">
+            <div className="space-y-2">
               {empGoals.map(g => (
-                <div key={g.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  {/* Header row */}
-                  <div
-                    className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50"
-                    onClick={() => toggle(g.id)}
-                  >
-                    <div className="flex items-center gap-3 flex-1">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusStyle[g.status] || ''}`}>
-                        {g.status}
-                      </span>
-                      <p className="font-medium text-gray-800 text-sm">{g.title}</p>
+                <div key={g.id} className="card overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 p-4 cursor-pointer hover:bg-surface-soft transition-colors" onClick={() => toggle(g.id)}>
+                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                      <span className={`badge ${statusBadge[g.status] || 'badge-draft'}`}>{g.status}</span>
+                      <p className="font-medium text-ink text-sm truncate">{g.title}</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-gray-400">{g.weightage}%</span>
-                      {expanded[g.id] ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-ink-faint font-medium">{g.weightage}%</span>
+                      {expanded[g.id] ? <ChevronUp size={14} className="text-ink-faint" /> : <ChevronDown size={14} className="text-ink-faint" />}
                     </div>
                   </div>
-
-                  {/* Expanded detail */}
                   {expanded[g.id] && (
-                    <div className="px-4 pb-4 border-t border-gray-100">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs text-gray-500">
-                        <div><span className="block text-gray-400">Thrust Area</span><span className="font-medium text-gray-700">{g.thrust_area}</span></div>
-                        <div><span className="block text-gray-400">UoM Type</span><span className="font-medium text-gray-700">{g.uom_type}</span></div>
-                        <div><span className="block text-gray-400">Target</span><span className="font-medium text-gray-700">{g.target ?? '—'}</span></div>
-                        <div><span className="block text-gray-400">Deadline</span><span className="font-medium text-gray-700">{g.deadline ? g.deadline.split('T')[0] : '—'}</span></div>
+                    <div className="border-t border-surface-border px-4 py-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                        {[['Thrust Area', g.thrust_area], ['UoM', g.uom_type], ['Target', g.target ?? '—'], ['Deadline', g.deadline ? g.deadline.split('T')[0] : '—']].map(([l, v]) => (
+                          <div key={l}>
+                            <p className="text-[0.65rem] uppercase tracking-wider text-ink-faint">{l}</p>
+                            <p className="text-sm font-medium text-ink mt-0.5">{v}</p>
+                          </div>
+                        ))}
                       </div>
-                      {g.description && (
-                        <p className="mt-2 text-xs text-gray-500">{g.description}</p>
-                      )}
-
-                      {/* Manager actions for submitted goals */}
+                      {g.description && <p className="text-sm text-ink-muted mb-4">{g.description}</p>}
                       {g.status === 'submitted' && (
-                        <div className="mt-4">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Comment (optional)</label>
-                          <input
-                            value={comments[g.id] || ''}
-                            onChange={e => setComments(c => ({ ...c, [g.id]: e.target.value }))}
-                            placeholder="Add feedback for the employee..."
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                          />
-                          <div className="flex gap-2 items-center">
-                            <button
-                              onClick={() => doAction(g.id, 'approve')}
-                              disabled={loading}
-                              className="flex items-center gap-1.5 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-                            >
-                              <CheckCircle size={14} /> Approve & Lock
+                        <div className="bg-surface-soft border border-surface-border rounded-xl p-4">
+                          <label className="form-label">Comment (optional)</label>
+                          <input className="form-input mb-3" value={comments[g.id] || ''} placeholder="Add feedback for employee..."
+                            onChange={e => setComments(c => ({ ...c, [g.id]: e.target.value }))} />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button className="btn btn-success" onClick={() => doAction(g.id, 'approve')} disabled={loading}>
+                              <CheckCircle size={13} /> Approve & Lock
                             </button>
-                            <button
-                              onClick={() => doAction(g.id, 'return')}
-                              disabled={loading}
-                              className="flex items-center gap-1.5 bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
-                            >
-                              <RotateCcw size={14} /> Return for Rework
+                            <button className="btn btn-warning" onClick={() => doAction(g.id, 'return')} disabled={loading}>
+                              <RotateCcw size={13} /> Return for Rework
                             </button>
-                            {messages[g.id] && (
-                              <span className={`text-xs ${messages[g.id].startsWith('✅') ? 'text-green-600' : messages[g.id].startsWith('↩️') ? 'text-orange-500' : 'text-red-500'}`}>
-                                {messages[g.id]}
-                              </span>
-                            )}
+                            {messages[g.id] === 'approved' && <span className="text-xs text-green-600 font-medium">✅ Approved and locked</span>}
+                            {messages[g.id] === 'returned' && <span className="text-xs text-orange-600 font-medium">↩️ Returned to employee</span>}
+                            {messages[g.id] && !['approved', 'returned'].includes(messages[g.id]) && <span className="text-xs text-red-600">{messages[g.id]}</span>}
                           </div>
                         </div>
                       )}
-
-                      {/* Show existing manager comment */}
                       {g.manager_comment && g.status !== 'submitted' && (
-                        <div className="mt-3 px-3 py-2 bg-orange-50 rounded-lg text-xs text-orange-700">
-                          💬 Your comment: {g.manager_comment}
+                        <div className="flex items-start gap-2 p-3 bg-orange-50 rounded-xl text-sm text-orange-700">
+                          <span>💬</span> Your comment: {g.manager_comment}
                         </div>
                       )}
                     </div>

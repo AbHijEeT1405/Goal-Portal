@@ -1,36 +1,61 @@
-import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
-import { Target, CheckSquare } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { Target, CheckSquare, TrendingUp, Clock } from 'lucide-react';
+
+const cards = [
+  {
+    to: '/employee/goals', icon: Target, color: 'bg-brand-500',
+    light: 'bg-brand-50', textColor: 'text-brand-600',
+    title: 'My Goals',
+    desc: 'Create, edit, and submit your annual goal sheet for manager approval.',
+    tag: 'Goal Setting Open'
+  },
+  {
+    to: '/employee/checkin', icon: CheckSquare, color: 'bg-blue-500',
+    light: 'bg-blue-50', textColor: 'text-blue-600',
+    title: 'Quarterly Check-in',
+    desc: 'Log actual achievements against your targets for each quarter.',
+    tag: 'Q1 Active'
+  },
+];
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-900 mb-1">Welcome, {user?.name}</h1>
-      <p className="text-sm text-gray-500 mb-8">FY 2026–27 · Employee Portal</p>
+      {/* Hero greeting */}
+      <div className="bg-gradient-to-r from-brand-500 to-brand-600 rounded-2xl p-6 mb-6 text-white">
+        <p className="text-brand-100 text-sm mb-1">Good day 👋</p>
+        <h1 className="text-2xl font-bold">{user?.name}</h1>
+        <p className="text-brand-100 text-sm mt-1">FY 2026–27 · Employee Portal</p>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Link to="/employee/goals"
-          className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow group">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-9 bg-teal-50 rounded-lg flex items-center justify-center">
-              <Target size={18} className="text-teal-600" />
+        {cards.map(({ to, icon: Icon, color, light, textColor, title, desc, tag }) => (
+          <Link key={to} to={to}
+            className="card-hover p-5 group flex flex-col gap-4 no-underline">
+            <div className="flex items-start justify-between">
+              <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center shadow-card`}>
+                <Icon size={18} className="text-white" />
+              </div>
+              <span className={`text-[0.68rem] font-medium px-2.5 py-1 rounded-full ${light} ${textColor}`}>{tag}</span>
             </div>
-            <p className="font-semibold text-gray-800">My Goals</p>
-          </div>
-          <p className="text-sm text-gray-500">Create, edit, and submit your annual goal sheet for manager approval.</p>
-        </Link>
+            <div>
+              <p className="font-semibold text-ink mb-1">{title}</p>
+              <p className="text-sm text-ink-faint leading-relaxed">{desc}</p>
+            </div>
+            <p className={`text-xs font-medium ${textColor} group-hover:underline`}>Open →</p>
+          </Link>
+        ))}
+      </div>
 
-        <Link to="/employee/checkin"
-          className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow group">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center">
-              <CheckSquare size={18} className="text-blue-600" />
-            </div>
-            <p className="font-semibold text-gray-800">Quarterly Check-in</p>
-          </div>
-          <p className="text-sm text-gray-500">Log actual achievements against your targets for each quarter.</p>
-        </Link>
+      {/* Info strip */}
+      <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <Clock size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-amber-800">Current Phase: Goal Setting</p>
+          <p className="text-xs text-amber-600 mt-0.5">Submit all goals before the deadline for manager review and approval.</p>
+        </div>
       </div>
     </div>
   );
