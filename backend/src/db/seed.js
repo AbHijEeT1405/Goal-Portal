@@ -17,7 +17,7 @@ async function seed() {
   const managerHash = await hash('manager123');
   const { rows: [manager] } = await db.query(`
     INSERT INTO users (name, email, password_hash, role, department)
-    VALUES ('Rahul Manager', 'manager@atomberg.com', $1, 'manager', 'Sales')
+    VALUES ('Rahul', 'manager@atomberg.com', $1, 'manager', 'Sales')
     ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name
     RETURNING id
   `, [managerHash]);
@@ -26,7 +26,7 @@ async function seed() {
   const empHash = await hash('employee123');
   await db.query(`
     INSERT INTO users (name, email, password_hash, role, manager_id, department)
-    VALUES ('Priya Employee', 'employee@atomberg.com', $1, 'employee', $2, 'Sales')
+    VALUES ('Priya', 'employee@atomberg.com', $1, 'employee', $2, 'Sales')
     ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name
   `, [empHash, manager.id]);
 

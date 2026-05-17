@@ -13,4 +13,4 @@ exports.submitGoals = handle(async (req) => { await svc.submitGoals(req.user.id)
 exports.getTeamGoals = handle((req) => svc.getTeamGoals(req.user.id));
 exports.approveGoal = handle((req) => svc.approveGoal(req.params.id, req.user.id, req.body.comment));
 exports.returnGoal = handle((req) => svc.returnGoal(req.params.id, req.user.id, req.body.comment));
-exports.unlockGoal = handle((req) => svc.unlockGoal(req.params.id, req.user.id));
+exports.unlockGoal = handle((req) => svc.unlockGoal(req.params.id, req.user.id, req.body.reason));

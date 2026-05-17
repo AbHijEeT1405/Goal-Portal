@@ -15,11 +15,23 @@ exports.achievementReport = async (req, res) => {
 };
 
 exports.completionDashboard = async (req, res) => {
-  try { res.json(await svc.completionDashboard()); }
-  catch (err) { res.status(400).json({ error: err.message }); }
+  try {
+    res.json(await svc.completionDashboard(req.query.quarter || 'Q1'));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 };
 
 exports.auditLogs = async (req, res) => {
   try { res.json(await svc.auditLogs(req.query.limit)); }
   catch (err) { res.status(400).json({ error: err.message }); }
+};
+
+exports.getAnalytics = async (req, res) => {
+  try {
+    const data = await svc.getAnalytics();
+    res.json(data);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 };

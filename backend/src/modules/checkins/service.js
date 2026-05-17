@@ -1,5 +1,7 @@
 const db = require('../../db');
 const { calcProgressScore } = require('../../utils/scoring');
+const { sendMail } = require('../../utils/mailer');
+const { assertCheckinWindowOpen } = require('../../utils/cycleRules');
 
 async function getMyCheckins(employeeId, quarter) {
   const { rows } = await db.query(
@@ -17,7 +19,8 @@ async function getMyCheckins(employeeId, quarter) {
         c.progress_status,
         c.progress_score,
         c.completion_date,
-        c.manager_comment
+        c.manager_comment,
+        c.manager_commented_at
      FROM goals g
      LEFT JOIN checkins c 
        ON c.goal_id = g.id 
@@ -41,15 +44,7 @@ async function submitCheckin(employeeId, data) {
   const progressStatus =
     data.progress_status ?? data.progressStatus ?? 'Not Started';
 
-  console.log('submitCheckin payload received:', data);
-  console.log('submitCheckin normalized:', {
-    goalId,
-    employeeId,
-    quarter,
-    actualAchievement,
-    completionDate,
-    progressStatus,
-  });
+  await assertCheckinWindowOpen(quarter);
 
   const { rows: [goal] } = await db.query(
     `SELECT *
@@ -102,6 +97,22 @@ async function submitCheckin(employeeId, data) {
     ]
   );
 
+  const { rows: [employee] } = await db.query(
+    `SELECT u.name, m.email AS manager_email, m.name AS manager_name
+     FROM users u
+     LEFT JOIN users m ON u.manager_id = m.id
+     WHERE u.id = $1`,
+    [employeeId]
+  );
+
+  if (employee?.manager_email) {
+    await sendMail({
+      to: employee.manager_email,
+      subject: `Check-in Submitted (${quarter})`,
+      text: `Hi ${employee.manager_name || 'Manager'}, ${employee.name} has submitted a ${quarter} check-in for goal "${goal.title}".`,
+    });
+  }
+
   return { ...checkin, progress_score: score };
 }
 
@@ -109,6 +120,7 @@ async function getTeamCheckins(managerId, quarter) {
   const { rows } = await db.query(
     `SELECT 
         u.name AS employee_name,
+        u.id AS employee_id,
         g.id AS goal_id,
         g.title,
         g.uom_type,
@@ -119,6 +131,7 @@ async function getTeamCheckins(managerId, quarter) {
         c.progress_status,
         c.progress_score,
         c.manager_comment,
+        c.manager_commented_at,
         c.id AS checkin_id
      FROM users u
      JOIN goals g ON g.employee_id = u.id
@@ -135,11 +148,16 @@ async function getTeamCheckins(managerId, quarter) {
 }
 
 async function addComment(checkinId, managerId, comment) {
+  if (!comment || !comment.trim()) {
+    throw new Error('Manager comment is required');
+  }
+
   const { rows: [c] } = await db.query(
-    `SELECT ch.*
+    `SELECT ch.*, g.title, g.employee_id, u.manager_id, e.email AS employee_email, e.name AS employee_name
      FROM checkins ch
      JOIN goals g ON ch.goal_id = g.id
      JOIN users u ON g.employee_id = u.id
+     JOIN users e ON g.employee_id = e.id
      WHERE ch.id = $1
        AND u.manager_id = $2`,
     [checkinId, managerId]
@@ -151,11 +169,20 @@ async function addComment(checkinId, managerId, comment) {
 
   const { rows: [updated] } = await db.query(
     `UPDATE checkins
-     SET manager_comment = $1
+     SET manager_comment = $1,
+         manager_commented_at = NOW()
      WHERE id = $2
      RETURNING *`,
-    [comment, checkinId]
+    [comment.trim(), checkinId]
   );
+
+  if (c.employee_email) {
+    await sendMail({
+      to: c.employee_email,
+      subject: 'Manager added check-in feedback',
+      text: `Hi ${c.employee_name}, your manager added feedback for goal "${c.title}".`,
+    });
+  }
 
   return updated;
 }

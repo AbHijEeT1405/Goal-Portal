@@ -1,5 +1,7 @@
 const db = require('../../db');
 const audit = require('../../utils/audit');
+const { sendMail } = require('../../utils/mailer');
+const { assertGoalWindowOpen } = require('../../utils/cycleRules');
 
 const GOAL_LIMIT = 8;
 const EMPLOYEE_EDITABLE_STATUSES = ['draft', 'returned'];
@@ -27,6 +29,8 @@ async function getMyGoals(employeeId) {
 }
 
 async function createGoal(employeeId, data) {
+  await assertGoalWindowOpen();
+
   const {
     thrust_area,
     title,
@@ -97,6 +101,8 @@ async function createGoal(employeeId, data) {
 }
 
 async function updateGoal(goalId, employeeId, data) {
+  await assertGoalWindowOpen();
+
   const { rows: [existing] } = await db.query(
     `SELECT * 
      FROM goals 
@@ -160,6 +166,8 @@ async function updateGoal(goalId, employeeId, data) {
 }
 
 async function deleteGoal(goalId, employeeId) {
+  await assertGoalWindowOpen();
+
   const { rows: [existing] } = await db.query(
     `SELECT * 
      FROM goals 
@@ -175,22 +183,47 @@ async function deleteGoal(goalId, employeeId) {
     throw new Error('Cannot delete a submitted or locked goal');
   }
 
-  await db.query(
-    `DELETE FROM goals WHERE id = $1`,
+  const { rows: [childUsage] } = await db.query(
+    `SELECT COUNT(*)::int AS count
+     FROM checkins
+     WHERE goal_id = $1`,
     [goalId]
   );
 
+  if (childUsage.count > 0) {
+    throw new Error('This goal cannot be deleted because check-ins already exist for it');
+  }
+
+  const result = await db.query(
+    `DELETE FROM goals
+     WHERE id = $1
+       AND employee_id = $2
+       AND status = ANY($3::text[])`,
+    [goalId, employeeId, EMPLOYEE_EDITABLE_STATUSES]
+  );
+
+  if (result.rowCount === 0) {
+    throw new Error('Goal could not be deleted');
+  }
+
   await audit.log({
-    goalId,
+    goalId: null,
     changedBy: employeeId,
     action: 'deleted',
+    oldVal: JSON.stringify({
+      deleted_goal_id: existing.id,
+      title: existing.title,
+      status: existing.status,
+      weightage: existing.weightage,
+    }),
   });
 
   return { success: true };
 }
-
 async function submitGoals(employeeId) {
-  const { rows: goals } = await db.query(
+  await assertGoalWindowOpen();
+
+  const { rows: editableGoals } = await db.query(
     `SELECT * 
      FROM goals 
      WHERE employee_id = $1 
@@ -198,15 +231,23 @@ async function submitGoals(employeeId) {
     [employeeId, SUBMITTABLE_STATUSES]
   );
 
-  if (goals.length === 0) {
+  if (editableGoals.length === 0) {
     throw new Error('No goals to submit');
   }
 
-  if (goals.length > GOAL_LIMIT) {
+  const { rows: allRelevantGoals } = await db.query(
+    `SELECT *
+     FROM goals
+     WHERE employee_id = $1
+       AND status = ANY($2::text[])`,
+    [employeeId, ['draft', 'returned', 'submitted', 'locked']]
+  );
+
+  if (allRelevantGoals.length > GOAL_LIMIT) {
     throw new Error(`Maximum ${GOAL_LIMIT} goals allowed per employee`);
   }
 
-  const hasInvalidWeightage = goals.some(
+  const hasInvalidWeightage = allRelevantGoals.some(
     (g) => Number(g.weightage) < 10
   );
 
@@ -214,7 +255,10 @@ async function submitGoals(employeeId) {
     throw new Error('Each goal must have at least 10% weightage');
   }
 
-  const total = goals.reduce((sum, g) => sum + Number(g.weightage), 0);
+  const total = allRelevantGoals.reduce(
+    (sum, g) => sum + Number(g.weightage),
+    0
+  );
 
   if (Math.round(total) !== 100) {
     throw new Error(`Total weightage must equal 100%. Currently: ${total}%`);
@@ -229,11 +273,27 @@ async function submitGoals(employeeId) {
     [employeeId, SUBMITTABLE_STATUSES]
   );
 
-  for (const g of goals) {
+  for (const g of editableGoals) {
     await audit.log({
       goalId: g.id,
       changedBy: employeeId,
       action: 'submitted',
+    });
+  }
+
+  const { rows: [employee] } = await db.query(
+    `SELECT u.name, u.email, m.email AS manager_email, m.name AS manager_name
+     FROM users u
+     LEFT JOIN users m ON u.manager_id = m.id
+     WHERE u.id = $1`,
+    [employeeId]
+  );
+
+  if (employee?.manager_email) {
+    await sendMail({
+      to: employee.manager_email,
+      subject: 'Goals Submitted for Approval',
+      text: `Hi ${employee.manager_name || 'Manager'}, ${employee.name} has submitted goals for your review.`,
     });
   }
 
@@ -292,6 +352,19 @@ async function approveGoal(goalId, managerId, comment) {
     newVal: 'locked',
   });
 
+  const { rows: [employee] } = await db.query(
+    `SELECT name, email FROM users WHERE id = $1`,
+    [goal.employee_id]
+  );
+
+  if (employee?.email) {
+    await sendMail({
+      to: employee.email,
+      subject: 'Goal Approved',
+      text: `Hi ${employee.name}, your goal "${updated.title}" has been approved and locked.`,
+    });
+  }
+
   return updated;
 }
 
@@ -331,14 +404,28 @@ async function returnGoal(goalId, managerId, comment) {
     newVal: comment || '',
   });
 
+  const { rows: [employee] } = await db.query(
+    `SELECT name, email FROM users WHERE id = $1`,
+    [goal.employee_id]
+  );
+
+  if (employee?.email) {
+    await sendMail({
+      to: employee.email,
+      subject: 'Goal Returned for Rework',
+      text: `Hi ${employee.name}, your goal "${updated.title}" was returned for rework.${comment ? ` Manager comment: ${comment}` : ''}`,
+    });
+  }
+
   return updated;
 }
 
-async function unlockGoal(goalId, adminId) {
+async function unlockGoal(goalId, adminId, reason) {
   const { rows: [goal] } = await db.query(
-    `SELECT * 
-     FROM goals 
-     WHERE id = $1`,
+    `SELECT g.*, u.email, u.name
+     FROM goals g
+     JOIN users u ON g.employee_id = u.id
+     WHERE g.id = $1`,
     [goalId]
   );
 
@@ -350,22 +437,33 @@ async function unlockGoal(goalId, adminId) {
     throw new Error('Goal is not locked');
   }
 
+  const unlockReason = reason?.trim() || 'Admin exception';
+
   const { rows: [updated] } = await db.query(
     `UPDATE goals
      SET status = 'returned',
          locked_at = NULL,
+         manager_comment = COALESCE(manager_comment, '') || $2,
          updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
-    [goalId]
+    [goalId, `\n[ADMIN UNLOCK] ${unlockReason}`]
   );
 
   await audit.log({
     goalId,
     changedBy: adminId,
     action: 'unlocked',
-    newVal: 'returned',
+    newVal: unlockReason,
   });
+
+  if (goal.email) {
+    await sendMail({
+      to: goal.email,
+      subject: 'Goal unlocked by admin',
+      text: `Hi ${goal.name}, your goal "${goal.title}" has been unlocked by admin. Reason: ${unlockReason}`,
+    });
+  }
 
   return updated;
 }
