@@ -1,0 +1,147 @@
+const db = require('../../db');
+const audit = require('../../utils/audit');
+
+async function getMyGoals(employeeId) {
+  const { rows } = await db.query(
+    `SELECT g.*, c.name as cycle_name
+     FROM goals g LEFT JOIN cycles c ON g.cycle_id = c.id
+     WHERE g.employee_id = $1 ORDER BY g.created_at DESC`,
+    [employeeId]
+  );
+  return rows;
+}
+
+async function createGoal(employeeId, data) {
+  const { thrust_area, title, description, uom_type, target, deadline, weightage } = data;
+
+  // Count existing non-deleted goals
+  const { rows: existing } = await db.query(
+    `SELECT COUNT(*) FROM goals WHERE employee_id = $1 AND status != 'returned'`, [employeeId]
+  );
+  if (parseInt(existing[0].count) >= 8)
+    throw new Error('Maximum 8 goals allowed per employee');
+
+  const { rows: [cycle] } = await db.query(
+    `SELECT id FROM cycles WHERE is_active = true LIMIT 1`
+  );
+
+  const { rows: [goal] } = await db.query(
+    `INSERT INTO goals (employee_id, cycle_id, thrust_area, title, description, uom_type, target, deadline, weightage)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [employeeId, cycle?.id, thrust_area, title, description, uom_type, target || null, deadline || null, weightage]
+  );
+  await audit.log({ goalId: goal.id, changedBy: employeeId, action: 'created' });
+  return goal;
+}
+
+async function updateGoal(goalId, employeeId, data) {
+  const { rows: [existing] } = await db.query(
+    `SELECT * FROM goals WHERE id = $1 AND employee_id = $2`, [goalId, employeeId]
+  );
+  if (!existing) throw new Error('Goal not found');
+  if (!['draft', 'returned'].includes(existing.status))
+    throw new Error('Goal cannot be edited in current status');
+
+  const { thrust_area, title, description, uom_type, target, deadline, weightage } = data;
+  const { rows: [goal] } = await db.query(
+    `UPDATE goals SET thrust_area=$1, title=$2, description=$3, uom_type=$4,
+     target=$5, deadline=$6, weightage=$7, updated_at=NOW()
+     WHERE id=$8 RETURNING *`,
+    [thrust_area, title, description, uom_type, target, deadline, weightage, goalId]
+  );
+  await audit.log({ goalId, changedBy: employeeId, action: 'updated' });
+  return goal;
+}
+
+async function deleteGoal(goalId, employeeId) {
+  const { rows: [existing] } = await db.query(
+    `SELECT * FROM goals WHERE id = $1 AND employee_id = $2`, [goalId, employeeId]
+  );
+  if (!existing) throw new Error('Goal not found');
+  if (!['draft', 'returned'].includes(existing.status))
+    throw new Error('Cannot delete a submitted or approved goal');
+  await db.query(`DELETE FROM goals WHERE id = $1`, [goalId]);
+}
+
+async function submitGoals(employeeId) {
+  const { rows: goals } = await db.query(
+    `SELECT * FROM goals WHERE employee_id = $1 AND status IN ('draft','returned')`, [employeeId]
+  );
+  if (goals.length === 0) throw new Error('No goals to submit');
+
+  const total = goals.reduce((sum, g) => sum + parseFloat(g.weightage), 0);
+  if (Math.round(total) !== 100)
+    throw new Error(`Total weightage must equal 100%. Currently: ${total}%`);
+
+  await db.query(
+    `UPDATE goals SET status='submitted', updated_at=NOW()
+     WHERE employee_id=$1 AND status IN ('draft','returned')`,
+    [employeeId]
+  );
+  for (const g of goals)
+    await audit.log({ goalId: g.id, changedBy: employeeId, action: 'submitted' });
+}
+
+async function getTeamGoals(managerId) {
+  const { rows } = await db.query(
+    `SELECT g.*, u.name as employee_name, u.email as employee_email
+     FROM goals g
+     JOIN users u ON g.employee_id = u.id
+     WHERE u.manager_id = $1
+     ORDER BY u.name, g.created_at DESC`,
+    [managerId]
+  );
+  return rows;
+}
+
+async function approveGoal(goalId, managerId, comment) {
+  const { rows: [goal] } = await db.query(
+    `SELECT g.* FROM goals g
+     JOIN users u ON g.employee_id = u.id
+     WHERE g.id = $1 AND u.manager_id = $2`, [goalId, managerId]
+  );
+  if (!goal) throw new Error('Goal not found or not authorized');
+  if (goal.status !== 'submitted') throw new Error('Only submitted goals can be approved');
+
+  const { rows: [updated] } = await db.query(
+    `UPDATE goals SET status='locked', manager_comment=$1, locked_at=NOW(), updated_at=NOW()
+     WHERE id=$2 RETURNING *`,
+    [comment || null, goalId]
+  );
+  await audit.log({ goalId, changedBy: managerId, action: 'approved' });
+  return updated;
+}
+
+async function returnGoal(goalId, managerId, comment) {
+  const { rows: [goal] } = await db.query(
+    `SELECT g.* FROM goals g
+     JOIN users u ON g.employee_id = u.id
+     WHERE g.id = $1 AND u.manager_id = $2`, [goalId, managerId]
+  );
+  if (!goal) throw new Error('Goal not found or not authorized');
+
+  const { rows: [updated] } = await db.query(
+    `UPDATE goals SET status='returned', manager_comment=$1, updated_at=NOW()
+     WHERE id=$2 RETURNING *`,
+    [comment || '', goalId]
+  );
+  await audit.log({ goalId, changedBy: managerId, action: 'returned', newVal: comment });
+  return updated;
+}
+
+async function unlockGoal(goalId, adminId) {
+  const { rows: [goal] } = await db.query(
+    `SELECT * FROM goals WHERE id = $1`, [goalId]
+  );
+  if (!goal) throw new Error('Goal not found');
+  if (goal.status !== 'locked') throw new Error('Goal is not locked');
+
+  const { rows: [updated] } = await db.query(
+    `UPDATE goals SET status='approved', locked_at=NULL, updated_at=NOW()
+     WHERE id=$1 RETURNING *`, [goalId]
+  );
+  await audit.log({ goalId, changedBy: adminId, action: 'unlocked' });
+  return updated;
+}
+
+module.exports = { getMyGoals, createGoal, updateGoal, deleteGoal, submitGoals, getTeamGoals, approveGoal, returnGoal, unlockGoal };
