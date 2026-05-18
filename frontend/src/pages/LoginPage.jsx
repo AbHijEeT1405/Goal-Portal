@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Target, Eye, EyeOff } from 'lucide-react';
+import { useMsal } from '@azure/msal-react';
+import { loginRequest } from '../authConfig';
 
 const DEMO = [
   { role: 'Employee', email: 'employee@atomberg.com', password: 'employee123', color: 'bg-brand-50 border-brand-200 text-brand-700' },
@@ -10,7 +12,8 @@ const DEMO = [
 ];
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithMicrosoft } = useAuth();
+  const { instance } = useMsal();
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPw, setShowPw] = useState(false);
@@ -29,6 +32,33 @@ export default function LoginPage() {
     } catch (err) {
       setError(err.error || 'Login failed. Check your credentials.');
     } finally { setLoading(false); }
+  };
+
+  const handleMicrosoftLogin = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      const response = await instance.loginPopup(loginRequest);
+      const email =
+        response.account?.username ||
+        response.account?.email;
+
+      if (!email) {
+        throw new Error('Microsoft account email not found.');
+      }
+
+      const user = await loginWithMicrosoft(email);
+
+      navigate(
+        user.role === 'employee' ? '/employee/dashboard' :
+        user.role === 'manager'  ? '/manager/dashboard'  : '/admin/dashboard'
+      );
+    } catch (err) {
+      setError(err.message || err.error || 'Microsoft sign-in failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fillDemo = (d) => setForm({ email: d.email, password: d.password });
@@ -86,6 +116,14 @@ export default function LoginPage() {
               <button type="submit" disabled={loading}
                 className="btn btn-primary w-full justify-center py-2.5 text-sm font-semibold">
                 {loading ? 'Signing in...' : 'Sign in →'}
+              </button>
+              <button
+                type="button"
+                onClick={handleMicrosoftLogin}
+                disabled={loading}
+                className="btn w-full justify-center py-2.5 text-sm font-semibold border border-surface-border mt-3"
+              >
+                Sign in with Microsoft
               </button>
             </form>
 

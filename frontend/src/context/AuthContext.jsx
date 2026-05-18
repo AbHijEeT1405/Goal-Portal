@@ -27,6 +27,18 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  const loginWithMicrosoft = async (email) => {
+    const data = await api.post('/auth/microsoft-login', { email });
+
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+
+    setToken(data.token);
+    setUser(data.user);
+
+    return data.user;
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -41,6 +53,7 @@ export function AuthProvider({ children }) {
         user,
         token,
         login,
+        loginWithMicrosoft,
         logout,
         isAuthenticated: !!token,
       }}

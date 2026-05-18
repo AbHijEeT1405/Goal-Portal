@@ -18,10 +18,11 @@ const navByRole = {
     { to: '/manager/team-checkins', label: 'Team Check-ins',   icon: CheckSquare },
   ],
   admin: [
-    { to: '/admin/dashboard', label: 'Dashboard', icon: Shield   },
-    { to: '/admin/cycles',    label: 'Cycles',    icon: Settings },
-    { to: '/admin/reports',   label: 'Reports',   icon: FileText },
-    { to: '/admin/audit',     label: 'Audit Log', icon: Shield   },
+  { to: '/admin/dashboard', label: 'Dashboard', icon: Shield   },
+  { to: '/admin/cycles',    label: 'Cycles',    icon: Settings },
+  { to: '/admin/reports',   label: 'Reports',   icon: FileText },
+  { to: '/admin/analytics', label: 'Analytics', icon: BarChart2 },
+  { to: '/admin/audit',     label: 'Audit Log', icon: Shield   },
   ],
 };
 

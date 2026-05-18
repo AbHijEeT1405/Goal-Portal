@@ -11,6 +11,7 @@ import AdminDashboard from '../pages/admin/Dashboard';
 import CyclePage from '../pages/admin/CyclePage';
 import AuditPage from '../pages/admin/AuditPage';
 import ReportsPage from '../pages/admin/ReportsPage';
+import AnalyticsPage from '../pages/admin/AnalyticsPage';
 import AppLayout from '../layouts/AppLayout';
 
 function RequireAuth({ children, roles }) {
@@ -55,6 +56,7 @@ export default function AppRouter() {
           <Route path="cycles" element={<CyclePage />} />
           <Route path="audit" element={<AuditPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="analytics" element={<AnalyticsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

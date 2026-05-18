@@ -11,7 +11,13 @@ export default function AdminDashboard() {
   }, []);
 
   const totalEmployees = completion.length;
-  const fullyLocked = completion.filter(r => parseInt(r.locked_goals) > 0).length;
+  const toNum = (v) => Number(v) || 0;
+
+  const fullyLocked = completion.filter(r =>
+    toNum(r.locked_goals) > 0 &&
+    toNum(r.submitted_goals) === 0 &&
+    toNum(r.draft_goals) === 0
+  ).length;
   const pending = completion.filter(r => parseInt(r.submitted_goals) > 0).length;
 
   return (
@@ -26,7 +32,7 @@ export default function AdminDashboard() {
           <p className="text-3xl font-bold text-gray-800">{totalEmployees}</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <p className="text-xs text-gray-400 mb-1">Goals Locked</p>
+          <p className="text-xs text-gray-400 mb-1">Fully Locked Employees</p>
           <p className="text-3xl font-bold text-teal-600">{fullyLocked}</p>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-5">
