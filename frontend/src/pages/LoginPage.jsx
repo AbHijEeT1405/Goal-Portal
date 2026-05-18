@@ -40,9 +40,7 @@ export default function LoginPage() {
 
     try {
       const response = await instance.loginPopup(loginRequest);
-      const email =
-        response.account?.username ||
-        response.account?.email;
+      const email =response.account?.username;
 
       if (!email) {
         throw new Error('Microsoft account email not found.');
