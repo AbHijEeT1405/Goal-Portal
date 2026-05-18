@@ -4,6 +4,7 @@ const { sendMail } = require('../../utils/mailer');
 const { assertGoalWindowOpen } = require('../../utils/cycleRules');
 
 const GOAL_LIMIT = 8;
+const ESCALATION_HOURS = 48;
 const EMPLOYEE_EDITABLE_STATUSES = ['draft', 'returned'];
 const SUBMITTABLE_STATUSES = ['draft', 'returned'];
 const APPROVABLE_STATUSES = ['submitted'];
@@ -11,6 +12,71 @@ const RETURNABLE_STATUSES = ['submitted', 'locked'];
 
 function isEmployeeEditable(status) {
   return EMPLOYEE_EDITABLE_STATUSES.includes(status);
+}
+
+async function runApprovalEscalationCheck() {
+  const { rows: overdueGoals } = await db.query(
+    `
+    SELECT g.id, g.employee_id, g.title
+    FROM goals g
+    WHERE g.status = 'submitted'
+      AND g.updated_at <= NOW() - ($1 || ' hours')::interval
+      AND NOT EXISTS (
+        SELECT 1
+        FROM escalation_logs e
+        WHERE e.goal_id = g.id
+          AND e.type = 'manager_approval_timeout'
+          AND e.resolved = false
+      )
+    `,
+    [ESCALATION_HOURS]
+  );
+
+  for (const goal of overdueGoals) {
+    await db.query(
+      `
+      INSERT INTO escalation_logs (employee_id, goal_id, type, message, resolved)
+      VALUES ($1, $2, 'manager_approval_timeout', $3, false)
+      `,
+      [
+        goal.employee_id,
+        goal.id,
+        `Goal "${goal.title}" is pending manager approval for more than ${ESCALATION_HOURS} hours.`,
+      ]
+    );
+  }
+
+  return overdueGoals.length;
+}
+
+async function getEscalatedGoalsForAdmin() {
+  await runApprovalEscalationCheck();
+
+  const { rows } = await db.query(
+    `
+    SELECT
+      e.id AS escalation_id,
+      e.message,
+      e.created_at AS escalated_at,
+      g.id AS goal_id,
+      g.title,
+      g.status,
+      g.updated_at,
+      u.name AS employee_name,
+      u.email AS employee_email,
+      m.name AS manager_name,
+      m.email AS manager_email
+    FROM escalation_logs e
+    JOIN goals g ON e.goal_id = g.id
+    JOIN users u ON g.employee_id = u.id
+    LEFT JOIN users m ON u.manager_id = m.id
+    WHERE e.type = 'manager_approval_timeout'
+      AND e.resolved = false
+    ORDER BY e.created_at DESC
+    `
+  );
+
+  return rows;
 }
 
 async function getMyGoals(employeeId) {
@@ -220,6 +286,7 @@ async function deleteGoal(goalId, employeeId) {
 
   return { success: true };
 }
+
 async function submitGoals(employeeId) {
   await assertGoalWindowOpen();
 
@@ -301,15 +368,24 @@ async function submitGoals(employeeId) {
 }
 
 async function getTeamGoals(managerId) {
+  await runApprovalEscalationCheck();
+
   const { rows } = await db.query(
     `SELECT 
         g.*,
         u.name AS employee_name,
-        u.email AS employee_email
+        u.email AS employee_email,
+        EXISTS (
+          SELECT 1
+          FROM escalation_logs e
+          WHERE e.goal_id = g.id
+            AND e.type = 'manager_approval_timeout'
+            AND e.resolved = false
+        ) AS is_escalated
      FROM goals g
      JOIN users u ON g.employee_id = u.id
      WHERE u.manager_id = $1
-     ORDER BY u.name, g.created_at DESC`,
+     ORDER BY is_escalated DESC, u.name, g.created_at DESC`,
     [managerId]
   );
 
@@ -343,6 +419,15 @@ async function approveGoal(goalId, managerId, comment) {
      WHERE id = $2
      RETURNING *`,
     [comment || null, goalId]
+  );
+
+  await db.query(
+    `UPDATE escalation_logs
+     SET resolved = true
+     WHERE goal_id = $1
+       AND type = 'manager_approval_timeout'
+       AND resolved = false`,
+    [goalId]
   );
 
   await audit.log({
@@ -395,6 +480,15 @@ async function returnGoal(goalId, managerId, comment) {
      WHERE id = $2
      RETURNING *`,
     [comment || '', goalId]
+  );
+
+  await db.query(
+    `UPDATE escalation_logs
+     SET resolved = true
+     WHERE goal_id = $1
+       AND type = 'manager_approval_timeout'
+       AND resolved = false`,
+    [goalId]
   );
 
   await audit.log({
@@ -478,4 +572,6 @@ module.exports = {
   approveGoal,
   returnGoal,
   unlockGoal,
+  runApprovalEscalationCheck,
+  getEscalatedGoalsForAdmin,
 };

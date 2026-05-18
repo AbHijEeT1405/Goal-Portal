@@ -17,5 +17,7 @@ router.put('/:id/return', auth, role('manager'), ctrl.returnGoal);
 
 // Admin routes
 router.put('/:id/unlock', auth, role('admin'), ctrl.unlockGoal);
+router.get('/admin/escalations', auth, role('admin'), ctrl.getEscalatedGoalsForAdmin);
+router.post('/admin/escalations/run', auth, role('admin'), ctrl.runApprovalEscalationCheck);
 
 module.exports = router;
