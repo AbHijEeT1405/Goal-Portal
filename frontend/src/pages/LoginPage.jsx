@@ -126,7 +126,7 @@ export default function LoginPage() {
             </form>
 
             {/* Demo credentials */}
-            <div className="mt-6 pt-5 border-t border-surface-border">
+            {/* <div className="mt-6 pt-5 border-t border-surface-border">
               <p className="text-xs font-medium text-ink-faint mb-3 text-center uppercase tracking-wider">Quick login — Demo accounts</p>
               <div className="grid grid-cols-3 gap-2">
                 {DEMO.map(d => (
@@ -136,7 +136,7 @@ export default function LoginPage() {
                   </button>
                 ))}
               </div>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>
