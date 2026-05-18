@@ -26,7 +26,7 @@ export default function TeamGoalsPage() {
 
   useEffect(() => { fetchGoals(); }, []);
 
-  const fetchGoals = () =>
+  const fetchGoals = async () =>
     api.get('/goals/team').then(setGoals).catch(console.error);
 
   const toggle = (id) =>
@@ -38,7 +38,7 @@ export default function TeamGoalsPage() {
     try {
       await api.put(`/goals/${id}/${type}`, { comment: comments[id] || '' });
       setMessages(m => ({ ...m, [id]: type === 'approve' ? 'approved' : 'returned' }));
-      fetchGoals();
+      await fetchGoals();
     } catch (e) {
       setMessages(m => ({ ...m, [id]: e.error || 'Failed' }));
     } finally {
